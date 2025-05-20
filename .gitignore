@@ -1,0 +1,14 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs/EventSourcing
+/EventSourcing.API/bin/Debug/net9.0
+/EventSourcing.API/obj
+/EventSourcing.Application/bin/Debug/net9.0
+/EventSourcing.Application/obj
+/EventSourcing.API/EventSourcing.API.csproj.user
+/EventSourcing.Domain/bin/Debug/net9.0
+/EventSourcing.Domain/obj
+/EventSourcing.Infrastructure/bin/Debug/net9.0
+/EventSourcing.Infrastructure/obj
