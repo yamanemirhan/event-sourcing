@@ -4,7 +4,11 @@ using EventSourcing.Infrastructure.Repositories;
 
 namespace EventSourcing.Application.Services
 {
-    public class ProjectionUpdater(IBankAccountProjectionRepository _projectionRepository)
+    public interface IProjectionUpdater
+    {
+        Task HandleAsync(Event @event);
+    }
+    public class ProjectionUpdater(IBankAccountProjectionRepository _projectionRepository) : IProjectionUpdater
     {
         public async Task HandleAsync(Event @event)
         {
@@ -17,34 +21,38 @@ namespace EventSourcing.Application.Services
                         AccountHolder = e.AccountHolder,
                         Balance = e.InitialDeposit,
                         Currency = e.Currency,
-                        IsActive = true
+                        IsActive = true,
+                        Version = e.Version
                     };
                     await _projectionRepository.UpsertAsync(newProjection);
                     break;
 
                 case MoneyDeposited e:
                     var depositProjection = await _projectionRepository.GetAsync(e.AccountId);
-                    if (depositProjection != null)
+                    if (depositProjection != null && e.Version > depositProjection.Version)
                     {
                         depositProjection.Balance += e.Amount;
+                        depositProjection.Version = e.Version;
                         await _projectionRepository.UpsertAsync(depositProjection);
                     }
                     break;
 
                 case MoneyWithdrawn e:
                     var withdrawProjection = await _projectionRepository.GetAsync(e.AccountId);
-                    if (withdrawProjection != null)
+                    if (withdrawProjection != null && e.Version > withdrawProjection.Version)
                     {
                         withdrawProjection.Balance -= e.Amount;
+                        withdrawProjection.Version = e.Version;
                         await _projectionRepository.UpsertAsync(withdrawProjection);
                     }
                     break;
 
                 case AccountClosed e:
                     var closeProjection = await _projectionRepository.GetAsync(e.AccountId);
-                    if (closeProjection != null)
+                    if (closeProjection != null && e.Version > closeProjection.Version)
                     {
                         closeProjection.IsActive = false;
+                        closeProjection.Version = e.Version;
                         await _projectionRepository.UpsertAsync(closeProjection);
                     }
                     break;

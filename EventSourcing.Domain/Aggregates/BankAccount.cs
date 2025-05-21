@@ -1,4 +1,5 @@
 ﻿using EventSourcing.Domain.Events;
+using EventSourcing.Domain.Snapshots;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace EventSourcing.Domain.Aggregates
@@ -8,17 +9,15 @@ namespace EventSourcing.Domain.Aggregates
         [BsonId]
         [BsonRepresentation(MongoDB.Bson.BsonType.ObjectId)]
         public string Id { get; private set; }
-
         public string AccountHolder { get; private set; }
         public decimal Balance { get; private set; }
         public string Currency { get; private set; }
         public bool IsActive { get; private set; }
+        public int Version { get; private set; } = 1;
 
-        private readonly List<Event> _allEvents = new();
-        private readonly List<Event> _newEvents = new();
 
-        public IReadOnlyList<Event> Events => _allEvents.AsReadOnly();
-        public IReadOnlyList<Event> GetUncommittedEvents() => _newEvents.AsReadOnly();
+        private readonly List<Event> _events = new();
+        public IReadOnlyList<Event> Events => _events.AsReadOnly();
 
         private BankAccount() { }
 
@@ -36,11 +35,13 @@ namespace EventSourcing.Domain.Aggregates
                 MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
                 accountHolder,
                 initialDeposit,
-                currency);
+                currency)
+            {
+                Version = 1
+            };
 
             bankAccount.Apply(@event);
-            bankAccount._allEvents.Add(@event);
-            bankAccount._newEvents.Add(@event);
+            bankAccount._events.Add(@event);
 
             return bankAccount;
         }
@@ -50,10 +51,13 @@ namespace EventSourcing.Domain.Aggregates
             if (!IsActive) throw new InvalidOperationException("Account is closed.");
             if (amount <= 0) throw new ArgumentException("Deposit amount must be positive.");
 
-            var @event = new MoneyDeposited(Id, amount);
+            var @event = new MoneyDeposited(Id, amount)
+            {
+                Version = Version + 1
+            };
+
             Apply(@event);
-            _allEvents.Add(@event);
-            _newEvents.Add(@event);
+            _events.Add(@event);
         }
 
         public void Withdraw(decimal amount)
@@ -62,20 +66,26 @@ namespace EventSourcing.Domain.Aggregates
             if (amount <= 0) throw new ArgumentException("Withdrawal amount must be positive.");
             if (amount > Balance) throw new InvalidOperationException("Insufficient funds.");
 
-            var @event = new MoneyWithdrawn(Id, amount);
+            var @event = new MoneyWithdrawn(Id, amount)
+            {
+                Version = Version + 1
+            };
+
             Apply(@event);
-            _allEvents.Add(@event);
-            _newEvents.Add(@event);
+            _events.Add(@event);
         }
 
         public void Close(string reason)
         {
             if (!IsActive) throw new InvalidOperationException("Account already closed.");
 
-            var @event = new AccountClosed(Id, reason);
+            var @event = new AccountClosed(Id, reason)
+            {
+                Version = Version + 1
+            };
+
             Apply(@event);
-            _allEvents.Add(@event);
-            _newEvents.Add(@event);
+            _events.Add(@event);
         }
 
         public void Apply(Event @event)
@@ -102,22 +112,48 @@ namespace EventSourcing.Domain.Aggregates
                     IsActive = false;
                     break;
             }
+
+            Version = @event.Version;
         }
 
         public static BankAccount ReplayEvents(IEnumerable<Event> events)
         {
             var account = new BankAccount();
             foreach (var e in events)
-            {
                 account.Apply(e);
-                account._allEvents.Add(e);
-            }
+
             return account;
         }
 
-        public void ClearUncommittedEvents()
+        public static BankAccount FromSnapshot(BankAccountSnapshot snapshot, IEnumerable<Event> events)
         {
-            _newEvents.Clear();
+            var account = new BankAccount
+            {
+                Id = snapshot.Id,
+                AccountHolder = snapshot.AccountHolder,
+                Balance = snapshot.Balance,
+                Currency = snapshot.Currency,
+                IsActive = snapshot.IsActive,
+                Version = snapshot.Version
+            };
+
+            foreach (var e in events)
+                account.Apply(e);
+
+            return account;
+        }
+
+        public BankAccountSnapshot ToSnapshot()
+        {
+            return new Snapshots.BankAccountSnapshot
+            {
+                Id = Id,
+                AccountHolder = AccountHolder,
+                Balance = Balance,
+                Currency = Currency,
+                IsActive = IsActive,
+                Version = Version
+            };
         }
     }
 }

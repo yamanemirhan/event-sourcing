@@ -6,74 +6,108 @@ namespace EventSourcing.Application.Services
     public interface IBankAccountService
     {
         Task<string> OpenAccountAsync(string accountHolder, decimal initialDeposit);
-        Task<(decimal Balance, bool IsActive)> GetBalanceAsync(string accountId);
         Task DepositAsync(string accountId, decimal amount);
         Task WithdrawAsync(string accountId, decimal amount);
+        Task<(decimal Balance, bool IsActive)> GetBalanceAsync(string accountId);
     }
 
     public class BankAccountService : IBankAccountService
     {
-        private readonly IEventStoreRepository _eventStoreRepository;
+        private readonly IEventStoreRepository _eventStore;
         private readonly IBankAccountProjectionRepository _projectionRepository;
-        private readonly ProjectionUpdater _projectionUpdater;
+        private readonly IBankAccountSnapshotRepository _snapshotRepository;
+        private readonly IProjectionUpdater _projectionUpdater;
 
         public BankAccountService(
-            IEventStoreRepository eventStoreRepository,
+            IEventStoreRepository eventStore,
             IBankAccountProjectionRepository projectionRepository,
-            ProjectionUpdater projectionUpdater)
+            IBankAccountSnapshotRepository snapshotRepository,
+            IProjectionUpdater projectionUpdater)
         {
-            _eventStoreRepository = eventStoreRepository;
+            _eventStore = eventStore;
             _projectionRepository = projectionRepository;
+            _snapshotRepository = snapshotRepository;
             _projectionUpdater = projectionUpdater;
         }
 
         public async Task<string> OpenAccountAsync(string accountHolder, decimal initialDeposit)
         {
             var account = BankAccount.Open(accountHolder, initialDeposit);
-            await _eventStoreRepository.SaveEventsAsync(account.Id, account.GetUncommittedEvents());
+            await _eventStore.SaveEventsAsync(account.Id, account.Events);
 
-            foreach (var @event in account.GetUncommittedEvents())
-                await _projectionUpdater.HandleAsync(@event);
+            var projection = new Domain.Projections.BankAccountProjection
+            {
+                Id = account.Id,
+                AccountHolder = account.AccountHolder,
+                Balance = account.Balance,
+                Currency = account.Currency,
+                IsActive = account.IsActive,
+                Version = 1
+            };
 
-            account.ClearUncommittedEvents();
-
+            await _projectionRepository.UpsertAsync(projection);
             return account.Id;
+        }
+
+        public async Task DepositAsync(string accountId, decimal amount)
+        {
+            var account = await LoadAggregateAsync(accountId);
+            account.Deposit(amount);
+
+            await _eventStore.SaveEventsAsync(accountId, account.Events);
+
+            foreach (var ev in account.Events)
+            {
+                await _projectionUpdater.HandleAsync(ev);
+            }
+                
+            if (account.Version % 5 == 0)
+            {
+                var snapshot = account.ToSnapshot();
+                await _snapshotRepository.SaveSnapshotAsync(snapshot);
+            }
+        }
+
+        public async Task WithdrawAsync(string accountId, decimal amount)
+        {
+            var account = await LoadAggregateAsync(accountId);
+            account.Withdraw(amount);
+
+            await _eventStore.SaveEventsAsync(accountId, account.Events);
+
+            foreach (var ev in account.Events)
+                await _projectionUpdater.HandleAsync(ev);
+
+            if (account.Version % 5 == 0)
+            {
+                var snapshot = account.ToSnapshot();
+                await _snapshotRepository.SaveSnapshotAsync(snapshot);
+            }
         }
 
         public async Task<(decimal Balance, bool IsActive)> GetBalanceAsync(string accountId)
         {
             var projection = await _projectionRepository.GetAsync(accountId);
-            if (projection == null) throw new Exception("Account not found");
+            if (projection == null)
+                throw new Exception("Account not found");
+
             return (projection.Balance, projection.IsActive);
         }
 
-        public async Task DepositAsync(string accountId, decimal amount)
+        private async Task<BankAccount> LoadAggregateAsync(string accountId)
         {
-            var events = await _eventStoreRepository.GetEventsAsync(accountId);
-            var account = BankAccount.ReplayEvents(events);
-            account.Deposit(amount);
+            var snapshot = await _snapshotRepository.GetSnapshotAsync(accountId);
 
-            await _eventStoreRepository.SaveEventsAsync(account.Id, account.GetUncommittedEvents());
-
-            foreach (var @event in account.GetUncommittedEvents())
-                await _projectionUpdater.HandleAsync(@event);
-
-            account.ClearUncommittedEvents();
-        }
-
-        public async Task WithdrawAsync(string accountId, decimal amount)
-        {
-            var events = await _eventStoreRepository.GetEventsAsync(accountId);
-            var account = BankAccount.ReplayEvents(events);
-            account.Withdraw(amount);
-
-            await _eventStoreRepository.SaveEventsAsync(account.Id, account.GetUncommittedEvents());
-
-            foreach (var @event in account.GetUncommittedEvents())
-                await _projectionUpdater.HandleAsync(@event);
-
-            account.ClearUncommittedEvents();
+            if (snapshot != null)
+            {
+                var events = await _eventStore.GetEventsAsync(accountId, snapshot.Version);
+                return BankAccount.FromSnapshot(snapshot, events);
+            }
+            else
+            {
+                var events = await _eventStore.GetEventsAsync(accountId, 0);
+                return BankAccount.ReplayEvents(events);
+            }
         }
     }
-
 }

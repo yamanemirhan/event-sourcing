@@ -7,7 +7,8 @@ namespace EventSourcing.Infrastructure.Repositories
     public interface IEventStoreRepository
     {
         Task SaveEventsAsync(string streamId, IEnumerable<Event> events);
-        Task<List<Event>> GetEventsAsync(string streamId);
+        //Task<List<Event>> GetEventsAsync(string streamId);
+        Task<List<Event>> GetEventsAsync(string streamId, int fromVersion);
     }
 
     public class EventStoreRepository : IEventStoreRepository
@@ -25,11 +26,22 @@ namespace EventSourcing.Infrastructure.Repositories
             await _eventsCollection.InsertManyAsync(events);
         }
 
-        public async Task<List<Event>> GetEventsAsync(string streamId)
+
+        //public async Task<List<Event>> GetEventsAsync(string streamId)
+        //{
+        //    // events by streamId
+        //    var filter = Builders<Event>.Filter.Eq(e => e.StreamId, streamId);
+        //    return await _eventsCollection.Find(filter).ToListAsync();
+        //}
+        public async Task<List<Event>> GetEventsAsync(string streamId, int fromVersion)
         {
-            // events by streamId
-            var filter = Builders<Event>.Filter.Eq(e => e.StreamId, streamId);
+            var filter = Builders<Event>.Filter.And(
+                Builders<Event>.Filter.Eq(e => e.StreamId, streamId),
+                Builders<Event>.Filter.Gt(e => e.Version, fromVersion)
+            );
+
             return await _eventsCollection.Find(filter).ToListAsync();
         }
+
     }
 }

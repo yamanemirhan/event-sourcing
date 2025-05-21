@@ -12,5 +12,6 @@ namespace EventSourcing.Domain.Events
         public ObjectId Id { get; init; } // Mongo otomatik veriyor, biz kullanmıyoruz
 
         public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+        public int Version { get; set; }
     }
 }
