@@ -14,8 +14,11 @@ namespace EventSourcing.Domain.Aggregates
         public string Currency { get; private set; }
         public bool IsActive { get; private set; }
 
-        private readonly List<Event> _events = new();
-        public IReadOnlyList<Event> Events => _events.AsReadOnly();
+        private readonly List<Event> _allEvents = new();
+        private readonly List<Event> _newEvents = new();
+
+        public IReadOnlyList<Event> Events => _allEvents.AsReadOnly();
+        public IReadOnlyList<Event> GetUncommittedEvents() => _newEvents.AsReadOnly();
 
         private BankAccount() { }
 
@@ -36,7 +39,8 @@ namespace EventSourcing.Domain.Aggregates
                 currency);
 
             bankAccount.Apply(@event);
-            bankAccount._events.Add(@event);
+            bankAccount._allEvents.Add(@event);
+            bankAccount._newEvents.Add(@event);
 
             return bankAccount;
         }
@@ -48,7 +52,8 @@ namespace EventSourcing.Domain.Aggregates
 
             var @event = new MoneyDeposited(Id, amount);
             Apply(@event);
-            _events.Add(@event);
+            _allEvents.Add(@event);
+            _newEvents.Add(@event);
         }
 
         public void Withdraw(decimal amount)
@@ -59,7 +64,8 @@ namespace EventSourcing.Domain.Aggregates
 
             var @event = new MoneyWithdrawn(Id, amount);
             Apply(@event);
-            _events.Add(@event);
+            _allEvents.Add(@event);
+            _newEvents.Add(@event);
         }
 
         public void Close(string reason)
@@ -68,7 +74,8 @@ namespace EventSourcing.Domain.Aggregates
 
             var @event = new AccountClosed(Id, reason);
             Apply(@event);
-            _events.Add(@event);
+            _allEvents.Add(@event);
+            _newEvents.Add(@event);
         }
 
         public void Apply(Event @event)
@@ -101,9 +108,16 @@ namespace EventSourcing.Domain.Aggregates
         {
             var account = new BankAccount();
             foreach (var e in events)
+            {
                 account.Apply(e);
-
+                account._allEvents.Add(e);
+            }
             return account;
+        }
+
+        public void ClearUncommittedEvents()
+        {
+            _newEvents.Clear();
         }
     }
 }

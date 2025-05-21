@@ -10,6 +10,8 @@ builder.Services.AddScoped<MongoContext>(sp =>
 
 builder.Services.AddScoped<IEventStoreRepository, EventStoreRepository>();
 builder.Services.AddScoped<IBankAccountService, BankAccountService>();
+builder.Services.AddScoped<IBankAccountProjectionRepository, BankAccountProjectionRepository>();
+builder.Services.AddScoped<ProjectionUpdater>();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
